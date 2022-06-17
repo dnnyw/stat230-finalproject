@@ -1,0 +1,529 @@
+---
+title: "STAT 230A Replication"
+author: "Danny Wu"
+date: "4/20/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(ggExtra)
+library(lfe)
+library(stargazer)
+library(tidyr)
+library(dplyr)
+library(margins)
+```
+
+```{r Define function for writing equations}
+reg_eq = function(dependent, independent, fixed_effects, clustering) {
+  independent_str = paste(independent, collapse = ' + ')
+  fixed_effects_str = paste(fixed_effects, collapse = ' + ')
+  eqn = paste(dependent, ' ~ ', independent_str, '|', fixed_effects_str, '| 0 |', clustering)
+  return(as.formula(eqn))
+}
+```
+
+```{r Importing Regression Data}
+data = read.csv('regression_data.csv')
+```
+
+```{r Defining Independent Variable Groups}
+weatherdaily =  c('avgtemp10', 'skycover', 'pressureavgsealevel', 'windspeed', 'precipitationwaterequiv', 'avgdewpt')
+weatherdailyt = c('skycover', 'avgdewpt', 'pressureavgsealevel', 'windspeed', 'precipitationwaterequiv')
+weathertemp =   c('press6t4', 'dew6t4', 'prcp6t4', 'wind6t4', 'skycover')
+weather6t4 =    c('temp6t410', 'press6t4', 'dew6t4', 'prcp6t4', 'wind6t4', 'skycover' )
+heat =          c('heat10', 'press6t4', 'prcp6t4', 'wind6t4', 'skycover')
+dailyheat =     c('dailyheat', 'skycover', 'pressureavgsealevel', 'windspeed', 'precipitationwaterequiv' )
+dummies =       c('dayofweek', 'nat_name', 'c_asy_type', 'year', 'cm', 'chair')
+pollutants =    c('ozone', 'co', 'pm25')
+
+```
+
+```{r TABLE 1 and Figure 5 Code}
+#qui xi: reg res $weatherdaily $pollutants $dummies , vce (cluster cm)
+base_dev = felm(reg_eq('res', c(weatherdaily, pollutants), dummies, 'cm'), data = data)
+
+
+#qui xi: reg res $weather6t4 $pollutants $dummies , vce (cluster cm)
+base_6t4 = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = data)
+
+
+#qui xi: reg res ltemp6t410 $weather6t4  $dummies $pollutants , vce (cluster cm)
+lag_6t4 = felm(reg_eq('res', c('ltemp6t410', weather6t4, pollutants), dummies, 'cm'), data = data)
+
+
+#qui xi: reg res letemp6t410  $weather6t4  $dummies $pollutants , vce (cluster cm)
+lead_6t4 = felm(reg_eq('res', c('letemp6t410', weather6t4, pollutants), dummies, 'cm'), data = data)
+
+
+#qui xi: reg res ltemp6t410 temp6t410  letemp6t410 press6t4 dew6t4 prcp6t4 wind6t4 skycover $dummies $pollutants , vce (cluster cm)
+all_6t4_one = felm(reg_eq('res', c('ltemp6t410', 'letemp6t410', weather6t4, pollutants), dummies, 'cm'), data = data)
+
+
+```
+
+```{r Code for making tables}
+
+
+
+# function to get F-Stat for weather variables as described in paper
+get_waldstat_F <- function(model, variables) (round(waldtest(model, variables)['F'],3))
+
+
+# function to get pvals for F-Stat for weather variables as described in paper
+get_waldstat_pF <- function(model, variables) (round(waldtest(model, variables)['p.F'],5))
+```
+
+
+```{r TABLE 2 Code}
+#esttab base_6t4 lag_6t4 lead_6t4  all_6t4_one using base_6t4.tex,replace keep(ltemp6t410 temp6t410  letemp6t410 ) se brackets  star(* 0.10 ** 0.05 *** 0.01 mtitles("base"  "1-Day lag" "1-Day lead"  "all")	
+
+
+stargazer(base_6t4, lag_6t4, lead_6t4, all_6t4_one, 
+          dep.var.labels = 'Result',
+          covariate.labels = c('Temperature$_t/1,000$', 'Temperature$_{t-1}/1,000$', 'Temperature$_{t+1}/1,000$'),
+          column.labels = c("Base","1 Day Lag", "1 Day Lead", "1 Day Lag and Lead"),
+          type = "latex", 
+          keep = c(".*temp.*"),
+          keep.stat = c('n'),
+          order = c(4,2,3),
+          add.lines = list(c("F-Statistic for Weather Variables", 
+                             c(get_waldstat_F(base_6t4, weather6t4),
+                               get_waldstat_F(lag_6t4, c('ltemp6t410', weather6t4)),
+                               get_waldstat_F(lead_6t4, c('letemp6t410', weather6t4)),
+                               get_waldstat_F(all_6t4_one, c('ltemp6t410','letemp6t410', weather6t4)))),
+                           c("p-value", 
+                             c(get_waldstat_pF(base_6t4, weather6t4),
+                               get_waldstat_pF(lag_6t4, c('ltemp6t410', weather6t4)),
+                               get_waldstat_pF(lead_6t4, c('letemp6t410', weather6t4)),
+                               get_waldstat_pF(all_6t4_one, c('ltemp6t410','letemp6t410', weather6t4))))
+          )
+)
+          
+
+
+```
+
+
+
+
+```{r Figure 5 Code}
+
+#qui xi: reg res   l3avgtemp10 l2avgtemp10 lavgtemp10  temp6t410  le1avgtemp10 le2avgtemp10 le3avgtemp10  press6t4 dew6t4 prcp6t4 wind6t4  $dummies $pollutants , vce (cluster cm)
+all_6t4_one = felm(reg_eq('res', c('l3avgtemp10', 'l2avgtemp10', 'lavgtemp10', 'temp6t410', 'le1avgtemp10', 'le2avgtemp10', 'le3avgtemp10',  'press6t4', 'dew6t4', 'prcp6t4', 'wind6t4', pollutants), dummies, 'cm'), data = data)
+
+
+figure_5_pt = summary(all_6t4_one)$coefficients[1:7,1]
+figure_5_se = summary(all_6t4_one)$coefficients[1:7,2]
+
+
+figure_5 = ggplot() +
+  geom_line(aes(x = 1:7, y = figure_5_pt), col = 'red') +
+  geom_point(aes(x = 1:7, y = figure_5_pt)) + 
+  geom_errorbar(aes(x = 1:7, y = figure_5_pt, ymin=figure_5_pt- 1.95*figure_5_se, ymax=figure_5_pt + 1.95*figure_5_se), width=.2,
+                 position=position_dodge(0.05)) +
+  geom_hline( yintercept = 0, linetype = 'dotted', col = 'red') +
+  theme_bw() +
+  labs(x="Lagged/Leaded Temperature", y = "Point Estimates") + 
+  scale_x_continuous(breaks = 1:7, labels = c(-3:3))
+
+
+
+figure_5
+```
+
+```{r Alternative Fixed Effects}
+
+
+alt_dummies = c('nat_name', 'dayofweek', 'c_asy_type', 'chair', 'cm', 'jm', 'city', 'year', 'ym', 'date')
+# qui reg res  $weather6t4 $pollutants  , vce (cluster cm)
+base_6t4_nothing_dummies = 0
+base_6t4_nothing = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_nothing_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants $dummies 
+base_1_dummies = dummies
+base_1 = felm(reg_eq('res', c(weather6t4, pollutants), base_1_dummies, 0), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants 
+base_2_dummies = 0
+base_2 = felm(reg_eq('res', c(weather6t4, pollutants), base_2_dummies, 0), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati , cluster (cm)
+base_6t4_nati_dummies = c('nat_name')
+base_6t4_nati = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_nati_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati i.dayofweek  , cluster (cm)
+base_6t4_nati_dow_dummies = c('nat_name', 'dayofweek')
+base_6t4_nati_dow = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_nati_dow_dummies, 'cm'), data = data)
+
+  
+# qui reg res  $weather6t4 $pollutants i.nati i.type i.dayofweek , cluster (cm)
+base_6t4_nati_dow_type_dummies = c('nat_name', 'c_asy_type', 'dayofweek')
+base_6t4_nati_dow_type = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_nati_dow_type_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati i.type i.dayofweek i.chair , cluster (cm)
+base_6t4_nati_dow_type_j_dummies = c('nat_name', 'c_asy_type', 'dayofweek', 'chair')
+base_6t4_nati_dow_type_j = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_nati_dow_type_j_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati i.type i.dayofweek i.chair i.cm , cluster (cm)
+base_6t4_nati_dow_type_j_cm_dummies = c('nat_name', 'c_asy_type', 'dayofweek', 'chair', 'cm')
+base_6t4_nati_dow_type_j_cm = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_nati_dow_type_j_cm_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati i.type i.dayofweek i.chair i.ct i.ym , cluster (cm)
+base_6t4_city_ym_dummies = c('nat_name', 'c_asy_type', 'dayofweek', 'chair', 'city', 'ym')
+base_6t4_city_ym = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_city_ym_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati i.type i.dayofweek i.chair i.cym  , cluster (cm)
+base_6t4_cym_dummies = c('nat_name', 'c_asy_type', 'dayofweek', 'chair', 'cym')
+base_6t4_cym = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_cym_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati i.type i.dayofweek i.chair i.jm i.ct i.year , cluster (cm)
+base_6t4_jm_ct_year_dummies = c('nat_name', 'c_asy_type', 'dayofweek', 'jm', 'city', 'year')
+base_6t4_jm_ct_year=felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_jm_ct_year_dummies, 'cm'), data = data)
+
+
+# qui reg res  $weather6t4 $pollutants i.nati i.type i.chair i.cm i.year i.date, cluster (cm)
+base_6t4_date_dummies = c('date', 'nat_name', 'c_asy_type', 'year', 'cm', 'chair')
+base_6t4_date = felm(reg_eq('res', c(weather6t4, pollutants), base_6t4_date_dummies, 'cm'), data = data)
+
+#they don't have cym for some reason
+models_afe = list(base_6t4_nati, base_6t4_nati_dow, base_6t4_nati_dow_type, base_6t4_nati_dow_type_j, base_6t4_nati_dow_type_j_cm, base_6t4_city_ym, base_6t4_jm_ct_year, base_6t4_date)
+
+```
+
+```{r Creating Table 3 Alternative Fixed Effects}
+get_indicator <- function(dummies){
+  output = c()
+  for (cov in alt_dummies){
+    indicator = cov %in% dummies
+    output = c(output, indicator)
+  }
+  return(output)
+}
+
+dummies_list =  list(base_6t4_nati_dummies, base_6t4_nati_dow_dummies, base_6t4_nati_dow_type_dummies, base_6t4_nati_dow_type_j_dummies, base_6t4_nati_dow_type_j_cm_dummies, base_6t4_city_ym_dummies, base_6t4_jm_ct_year_dummies, base_6t4_date_dummies)
+fe_indicators = NULL
+for (afe in dummies_list){
+  output = get_indicator(afe)
+  fe_indicators = rbind(fe_indicators, output)
+}
+
+fe_indicators = t(fe_indicators)
+
+fe_vars = c('Nationality FEs', 'Day of Week FEs', 'Type of Application FEs', 'Judge FEs', 'City-Month FEs', 'Judge-Month FEs', 'City FEs', 'Year FEs', 'Year-Month FEs', 'Date FEs')
+
+stargazer_addlines = NULL
+
+for (i in 1:length(fe_vars)){
+  stargazer_addlines[[i]] = c(fe_vars[i], fe_indicators[i,])
+}
+
+stargazer(models_afe, 
+          dep.var.labels = 'Result',
+          covariate.labels = c('Temperature'),
+          apply.coef=multiply.by.100, 
+          apply.se=multiply.by.100,
+          type = "latex", 
+          keep = c("temp6t410"),
+          keep.stat = c('n'),
+          add.lines = stargazer_addlines
+)
+
+```
+
+```{r Robustness}
+
+# qui reg res  $weather6t4 $pollutants $dummies
+no_pollution = felm(reg_eq('res', weather6t4, dummies, 'cm'), data = data)
+
+
+# Not California
+
+CA_cities = c("SAN PEDRO", "SAN FRANCISCO", "SAN DIEGO", "LOS ANGELES", "LAS VEGAS", "LANCASTER", "IMPERIAL")
+data$CA = data$city %in% CA_cities
+no_CA = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, CA == FALSE))
+
+
+
+# quietly reg res  $weather6t4  $dummies $pollutants if skycover<0.1 , vce (cluster cm)
+
+clearsky = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, skycover < 0.1))
+
+
+# quietly reg res  $weather6t4  $dummies $pollutants if precipitationwaterequiv==0 , vce (cluster cm)
+
+norain = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, precipitationwaterequiv == 0))
+
+
+# quietly reg res  $weather6t4  $dummies $pollutants if precipitationwaterequiv==0 & lprcp==0, vce (cluster cm)
+
+norain2 = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, precipitationwaterequiv == 0 & lprcp == 0 ))
+
+
+# qui reg res  $heat $pollutants $dummies, cluster (cm)
+
+heat_6t4 = felm(reg_eq('res', c(heat, pollutants), dummies, 'cm'), data = data)
+
+
+# qui reg res  $heat   $dummies $pollutants if heat10>=0.075 , cluster (cm)
+
+heat_75 = felm(reg_eq('res', c(heat, pollutants), dummies, 'cm'), data = subset(data, heat10 > 0.075))
+
+
+# judges 
+
+judge_means = aggregate(data[,c('res', 'ij_name')], list(data$ij_name), mean)[,2:3]
+names(judge_means)[1] = 'rate'
+data = merge(data, judge_means, by = 'ij_name')
+judge_cutoffs =  quantile(judge_means$rate, c(.1, .25, .75, .90)) 
+
+
+judge_quartile = felm(reg_eq('res',  c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, rate > judge_cutoffs[2] & rate <= judge_cutoffs[3]))
+
+judge_decile = felm(reg_eq('res',  c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, rate > judge_cutoffs[1] & rate <= judge_cutoffs[4]))
+
+models_robust = list(no_pollution, no_CA, clearsky, norain, norain2, heat_6t4, heat_75, judge_quartile, judge_decile)
+
+
+stargazer(models_robust, 
+          dep.var.labels = 'Result',
+          covariate.labels = c('Temperature', 'Heat Index'),
+          type = "latex", 
+          keep = c("temp6t410", 'heat10'),
+          keep.stat = c('n')
+)
+    
+```
+
+
+```{r Reanalysis}
+data = data %>% mutate(across(all_of(dummies), as.factor))
+lm_model = lm(res ~ ., data = subset(data, select = c('res', 'deviations', weather6t4, pollutants, dummies)))
+hv = as.data.frame(hatvalues(lm_model))
+names(hv)[1] = 'leverage_scores'
+```
+
+
+
+```{r plotting leverage scores, fig.width=8, fig.height=3}
+hv$X = as.integer(rownames(hv))
+leverage_plot = ggplot() + geom_point(aes(x = hv$X, y = hv$leverage_scores), size = .5) + labs(y = 'Leverage Score', x = 'Index') + theme_bw() 
+leverage_plot = ggMarginal(leverage_plot, margins = 'y', size = 10)
+leverage_plot
+```
+
+```{r plotting leverage scores without crazy outliers, fig.width=8, fig.height=3}
+hv_subset = subset(hv, leverage_scores < 0.05)
+leverage_plot2 = ggplot() + geom_point(aes(x = hv_subset$X, y = hv_subset$leverage_scores), size = .5) + labs(y = 'Leverage Score', x = 'Index') + theme_bw() 
+leverage_plot2 = ggMarginal(leverage_plot2, margins = 'y', size = 10)
+leverage_plot2
+```
+
+```{r plotting leverage scores without crazy outliers, fig.width=8, fig.height=3}
+hv_subset = subset(hv, leverage_scores < 0.01)
+leverage_plot3 = ggplot() + geom_point(aes(x = hv_subset$X, y = hv_subset$leverage_scores), size = .5) + labs(y = 'Leverage Score', x = 'Index') + theme_bw() 
+leverage_plot3 = ggMarginal(leverage_plot3, margins = 'y', size = 10)
+leverage_plot3
+```
+
+
+
+```{r plotting leverage scores without crazy outliers, fig.width=8, fig.height=2.5}
+hv_subset = subset(hv, leverage_scores < 0.005)
+leverage_plot4 = ggplot() + geom_point(aes(x = hv_subset$X, y = hv_subset$leverage_scores), size = .5) + labs(y = 'Leverage Score', x = 'Index') + theme_bw() 
+leverage_plot4 = ggMarginal(leverage_plot4, margins = 'y', size = 10)
+leverage_plot4
+```
+
+
+```{r redo regressions without high leverage}
+data$leverage_scores = hv$leverage_scores
+
+dropped_leverage_0 = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, leverage_scores <= 1))
+dropped_leverage_1 = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, leverage_scores <= 0.05))
+dropped_leverage_2 = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, leverage_scores <= 0.01))
+dropped_leverage_3 = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = subset(data, leverage_scores <= 0.005))
+
+
+stargazer(dropped_leverage_0, dropped_leverage_1, dropped_leverage_2, dropped_leverage_3,
+          dep.var.labels = 'Result',
+          covariate.labels = c('Temperature$_t/1,000$'),
+          column.labels = c("<= 1","<= 0.05", "<= 0.01", "<= 0.005"),
+          type = "latex", 
+          keep = c(".*temp.*"),
+          keep.stat = c('n'),
+          add.lines = list(c("F-Statistic for Weather Variables", 
+                             c(get_waldstat_F(dropped_leverage_0, weather6t4),
+                               get_waldstat_F(dropped_leverage_1, weather6t4),
+                               get_waldstat_F(dropped_leverage_2, weather6t4),
+                               get_waldstat_F(dropped_leverage_3, weather6t4))),
+                           c("p-value", 
+                             c(get_waldstat_pF(dropped_leverage_0, weather6t4),
+                               get_waldstat_pF(dropped_leverage_1, weather6t4),
+                               get_waldstat_pF(dropped_leverage_2, weather6t4),
+                               get_waldstat_pF(dropped_leverage_3, weather6t4)))
+                               
+          )
+)
+
+
+```
+
+
+
+```{r, fig.width=8, fig.height=2.5}
+data$leverage_scores = hv$leverage_scores
+cutoffs = c(1, 0.05, 0.01, 0.005)
+ 
+dropped_obs = c()
+point_estimates = c()
+standard_errors = c()
+
+for (cutoff in cutoffs){
+ dropped_data = subset(data, leverage_scores <= cutoff)
+ dropped_obs = c(dropped_obs, nrow(data) - nrow(dropped_data))
+ base_6t4 = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = dropped_data)
+ point_estimates = c(point_estimates, summary(base_6t4)$coefficients[2,1])
+ standard_errors = c(standard_errors, summary(base_6t4)$coefficients[2,2])
+}
+
+
+xlabels = c()
+
+for (i in 1:4){
+ label = paste("<= ", cutoffs[i], " (", dropped_obs[i], ")")
+ xlabels = c(xlabels, label)
+}
+
+leverage_results = ggplot() +
+ geom_line(aes(x = 1:4, y = point_estimates), col = 'red') +
+ geom_point(aes(x = 1:4, y = point_estimates), size = 4) + 
+ geom_errorbar(aes(x = 1:4, y = point_estimates, ymin=point_estimates- 1.95*standard_errors, ymax=point_estimates + 1.95*standard_errors), width=.1,
+                position=position_dodge(0.05)) +
+ geom_hline( yintercept = 0, linetype = 'dotted', col = 'red') +
+ theme_bw() +
+ labs(x="Leverage Score Cutoff (Dropped Observations)", y = "Point Estimates")  +
+ scale_x_continuous(breaks = 1:4, labels = xlabels, limits = c(0.8,4.2))
+
+leverage_results
+```
+
+```{r running logistic regression instead }
+data = data %>% mutate(across(all_of(dummies), as.factor))
+
+
+logit_model = glm(res ~ ., 
+                  data = subset(data, select = c('res', 'deviations', weather6t4, pollutants, dummies)),
+                  family = binomial(link = logit))
+
+saveRDS(logit_model, file = "logit_fit.rds")
+
+summary(logit_model)
+
+stargazer(logit_model, 
+          dep.var.labels = 'Result',
+          covariate.labels = c('Temperature'),
+          type = "text", 
+          keep = c("temp6t410"),
+          keep.stat = c('n'))
+```
+
+```{r}
+ape = margins(logit_model, variables = "temp6t410")
+summary(ape)
+```
+
+
+```{r leverage scores but grouping by judge}
+data = data %>% mutate(across(all_of(dummies), as.factor))
+lm_model = lm(res ~ ., data = subset(data, select = c('res', 'deviations', weather6t4, pollutants, dummies)))
+hv = as.data.frame(hatvalues(lm_model))
+names(hv)[1] = 'leverage_scores'
+data$leverage_scores = hv$leverage_scores
+```
+
+```{r,  fig.width=8, fig.height=2.5}
+
+judge_avg_leverage = aggregate(data[,c('leverage_scores')], list(data$ij_name), mean)
+colnames(judge_avg_leverage)[1] = 'judge'
+colnames(judge_avg_leverage)[2] = 'mean_leverage'
+
+ggplot(data =judge_avg_leverage, aes(x = judge, y = mean_leverage)) + geom_point() + geom_hline(yintercept = 0.025, color = 'red') + labs( x= 'Judge Index', y = 'Mean Leverage Score')+theme_bw()
+
+```
+
+
+```{r leverage scores by country of origin, fig.width=8, fig.height=2.5}
+origin_avg_leverage = aggregate(data[,c('leverage_scores')], list(data$nat_name), mean)
+colnames(origin_avg_leverage)[1] = 'origin'
+colnames(origin_avg_leverage)[2] = 'mean_leverage'
+
+ggplot() + geom_point(aes(x = as.integer(rownames(origin_avg_leverage)), y = origin_avg_leverage$mean_leverage)) + labs(x = 'Country Index', y = 'Mean Leverage') + geom_hline(yintercept = 0.025, color = 'red') +theme_bw()
+```
+
+```{r leverage scores by city, fig.width=8, fig.height=2.5}
+city_avg_leverage = aggregate(data[,c('leverage_scores')], list(data$city), mean)
+colnames(city_avg_leverage)[1] = 'city'
+colnames(city_avg_leverage)[2] = 'mean_leverage'
+
+
+ggplot() + geom_point(aes(x = as.integer(rownames(city_avg_leverage)), y = city_avg_leverage$mean_leverage)) + labs(x = 'City Index', y = 'Mean Leverage') + geom_hline(yintercept = 0.045, color = 'red') +theme_bw()
+
+```
+
+
+
+```{r}
+low_lev_judges = subset(judge_avg_leverage, mean_leverage < 0.025)$judge
+low_lev_origin = subset(origin_avg_leverage, mean_leverage < 0.025)$origin
+low_lev_city = subset(city_avg_leverage, mean_leverage < 0.025)$city
+
+judge_data = subset(data, ij_name %in% low_lev_judges)
+origin_data = subset(data, nat_name %in% low_lev_origin)
+city_data = subset(data, city %in% low_lev_city)
+
+
+
+
+judge_model = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = judge_data)
+
+origin_model = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = origin_data)
+
+city_model = felm(reg_eq('res', c('deviations', weather6t4, pollutants), dummies, 'cm'), data = city_data)
+
+stargazer(judge_model, origin_model, city_model, 
+          dep.var.labels = 'Result',
+          covariate.labels = c('Temperature$_t/1,000$'),
+          column.labels = c("Judges","Nationality", "Courthouse City"),
+          type = "latex", 
+          keep = c(".*temp.*"),
+          keep.stat = c('n'),
+          add.lines = list(c("F-Statistic for Weather Variables", 
+                             c(get_waldstat_F(judge_model, weather6t4),
+                               get_waldstat_F(origin_model, weather6t4),
+                               get_waldstat_F(city_model,weather6t4))),
+                           c("p-value", 
+                             c(get_waldstat_pF(judge_model, weather6t4),
+                               get_waldstat_pF(origin_model, weather6t4),
+                               get_waldstat_pF(city_model, weather6t4)))
+                               
+          )
+)
+
+
+```
+
+
+
